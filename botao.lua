@@ -1,17 +1,25 @@
--- botao.lua - Versão corrigida e mais confiável (detecta o GUI principal do Fluent pelo nome "Fluent")
+-- botao.lua - Volta ao método antigo (procura por ScreenGui genérico), mas com espera curta e confiável
 
 local CoreGui = game:GetService("CoreGui")
 local UserInputService = game:GetService("UserInputService")
 
--- Espera o ScreenGui principal do Fluent (nome padrão é "Fluent")
-local HubGUI = CoreGui:WaitForChild("Fluent", 10)
+-- Espera até encontrar o GUI do hub (usa o método antigo que funcionava pra você)
+local HubGUI
+repeat
+    task.wait(0.2)
+    for _, gui in pairs(CoreGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and (gui.Name == "ScreenGui" or gui.Name == "Fluent" or gui:FindFirstChild("Acrylic") or gui:FindFirstChild("Main")) then
+            HubGUI = gui
+            break
+        end
+    end
+until HubGUI
 
 if not HubGUI then
-    warn("GUI do Fluent não encontrado! O botão externo não será criado.")
-    return
+    return  -- se mesmo assim não encontrar, não cria o botão (evita erro)
 end
 
--- Cria o botão
+-- Cria o botão externo
 local ToggleGui = Instance.new("ScreenGui")
 ToggleGui.Name = "HubToggleButton"
 ToggleGui.ResetOnSpawn = false
@@ -27,7 +35,7 @@ Button.ScaleType = Enum.ScaleType.Fit
 Button.BorderSizePixel = 0
 Button.Parent = ToggleGui
 
--- Draggable
+-- Draggable (mesmo do antigo)
 local dragging = false
 local dragInput, dragStart, startPos
 
@@ -37,7 +45,9 @@ Button.InputBegan:Connect(function(input)
         dragStart = input.Position
         startPos = Button.Position
         input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
         end)
     end
 end)
@@ -55,7 +65,7 @@ UserInputService.InputChanged:Connect(function(input)
     end
 end)
 
--- Toggle minimizar
+-- Minimizar / restaurar
 local minimized = false
 Button.MouseButton1Click:Connect(function()
     minimized = not minimized
