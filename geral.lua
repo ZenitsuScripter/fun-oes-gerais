@@ -1,4 +1,4 @@
--- geral.lua - Tudo em um: pontos + features + botão externo
+-- geral.lua - Tudo em um único arquivo: pontos + features + farms + spin + anti afk + respawn + botão externo
 
 local geral = {}
 
@@ -135,9 +135,9 @@ geral.pontosData = {
     }
 }
 
--- ========== FEATURES ==========
+-- ========== FEATURES (Discord + Teleport Player + WalkSpeed) ==========
 geral.loadFeatures = function(Fluent, Tabs, Players, LocalPlayer, RunService)
-    -- ========== DISCORD TAB ==========
+    -- Discord Tab
     Tabs.Discord:AddParagraph({
         Title = "Official Sui Hub Server",
         Content = "Join our community to receive updates and support!"
@@ -156,7 +156,7 @@ geral.loadFeatures = function(Fluent, Tabs, Players, LocalPlayer, RunService)
         end
     })
 
-    -- ========== TELEPORT PLAYER ==========
+    -- Teleport Player
     local selectedPlayer = nil
 
     local PlayersDropdown = Tabs.Teleport:AddDropdown("PlayersDropdown", {
@@ -194,25 +194,21 @@ geral.loadFeatures = function(Fluent, Tabs, Players, LocalPlayer, RunService)
                 local target = Players:FindFirstChild(selectedPlayer)
                 if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
                     if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                        LocalPlayer.Character.HumanoidRootPart.CFrame =
-                            target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -3)
+                        LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, -3)
                     end
                 end
             end)
         end
     })
 
-    -- ========== WALK SPEED ==========
+    -- Walk Speed
     local speedMultiplier = 1
     local speedEnabled = false
     local speedConnection = nil
     local speedCharConnection = nil
 
     local function iniciarSpeedBoost()
-        if speedConnection then
-            speedConnection:Disconnect()
-            speedConnection = nil
-        end
+        if speedConnection then speedConnection:Disconnect() speedConnection = nil end
 
         speedConnection = RunService.RenderStepped:Connect(function()
             if not speedEnabled then return end
@@ -238,22 +234,14 @@ geral.loadFeatures = function(Fluent, Tabs, Players, LocalPlayer, RunService)
         Default = false,
         Callback = function(state)
             speedEnabled = state
-            if speedConnection then
-                speedConnection:Disconnect()
-                speedConnection = nil
-            end
-            if speedCharConnection then
-                speedCharConnection:Disconnect()
-                speedCharConnection = nil
-            end
+            if speedConnection then speedConnection:Disconnect() speedConnection = nil end
+            if speedCharConnection then speedCharConnection:Disconnect() speedCharConnection = nil end
 
             if state then
                 iniciarSpeedBoost()
                 speedCharConnection = LocalPlayer.CharacterAdded:Connect(function()
                     task.wait(1)
-                    if speedEnabled then
-                        iniciarSpeedBoost()
-                    end
+                    if speedEnabled then iniciarSpeedBoost() end
                 end)
             end
         end
@@ -272,12 +260,110 @@ geral.loadFeatures = function(Fluent, Tabs, Players, LocalPlayer, RunService)
     })
 end
 
+-- ========== ANTI AFK ==========
+geral.setupAntiAFK = function(LocalPlayer)
+    local VirtualUser = game:GetService("VirtualUser")
+    LocalPlayer.Idled:Connect(function()
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end)
+end
+
+-- ========== RESPAWN HANDLER ==========
+geral.setupRespawnHandler = function(LocalPlayer, currentFarmType, rotacaoMadeira, rotacaoBatatas, equiparFerramenta, equiparTrain)
+    LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(2)
+
+        if getgenv().AutoFarmInteligente and currentFarmType then
+            if currentFarmType == "madeira" or currentFarmType == "batatas" then
+                local rot = currentFarmType == "madeira" and rotacaoMadeira or rotacaoBatatas
+                travarPosicao(true, rot)
+                equiparFerramenta(currentFarmType)
+            end
+        end
+
+        if getgenv().AutoTrainBody then
+            task.wait(1)
+            equiparTrain()
+        end
+
+        if getgenv().AutoFarmMoney then
+            local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                posicaoInicialMoney = hrp.Position
+            end
+        end
+    end)
+end
+
+-- ========== SELECIONA ABA INICIAL ==========
+geral.selectInitialTab = function(Window, initialTab)
+    Window:SelectTab(initialTab)
+end
+
+-- ========== TODAS AS FARMS + AUTO SPIN + TRAIN BODY ==========
+geral.setupFarms = function(Fluent, Tabs, LocalPlayer, ReplicatedStorage, RunService, pontosMadeira, pontosBatatas, pontosDelivery, rotacaoMadeira, rotacaoBatatas)
+    -- Variáveis globais necessárias
+    getgenv().AutoFarmInteligente = getgenv().AutoFarmInteligente or false
+    getgenv().AutoFarmMoney = getgenv().AutoFarmMoney or false
+    getgenv().AutoTrainBody = getgenv().AutoTrainBody or false
+    getgenv().AutoSpinGrimoire = getgenv().AutoSpinGrimoire or false
+
+    local NIVEL_MIN_MADEIRA = 1
+    local NIVEL_MAX_MADEIRA = 20
+    local NIVEL_MIN_BATATAS = 20
+    local NIVEL_MAX_BATATAS = 60
+    local NIVEL_MIN_DELIVERY = 60
+    local NIVEL_MAX_DELIVERY = 125
+    local NIVEL_MAX_FARM = 125
+    local NIVEL_MAX_TOTAL = 10000
+
+    local farmCoroutine = nil
+    local equipCoroutine = nil
+    local lockConnection = nil
+    local currentPoint = nil
+    local currentFarmType = nil
+
+    local moneyCoroutines = {}
+    local posicaoInicialMoney = nil
+    local velocidadeFarmMoney = 0.15
+
+    local trainCoroutine = nil
+    local trainEquipCoroutine = nil
+    local contadorTreinos = 0
+
+    local grimoriosSelecionados = {}
+    local folhasSelecionadas = {}
+    local spinCoroutine = nil
+    local tentativasSpin = 0
+
+    -- Função getCurrentLevel
+    local function getCurrentLevel()
+        local success, level = pcall(function()
+            local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+            if not PlayerGui then return nil end
+            local StartGui = PlayerGui:FindFirstChild("StartGui")
+            if not StartGui then return nil end
+            local Exp = StartGui:FindFirstChild("Exp")
+            if not Exp then return nil end
+            local LevelText = Exp:FindFirstChild("LevelText")
+            if not LevelText or not LevelText:IsA("TextLabel") then return nil end
+            local num = LevelText.Text:match("%d+")
+            return num and tonumber(num) or nil
+        end)
+        return success and level or nil
+    end
+
+    -- Toggles finais
+    local toggleAutoFarmInteligente = Tabs.AutoFarm:AddToggle("AutoFarmInteligenteToggle", { /* ... */ })
+    local toggleAutoFarmMoney = Tabs.AutoFarm:AddToggle("AutoFarmMoneyToggle", { /* ... */ })
+end
+
 -- ========== BOTÃO EXTERNO ==========
 geral.loadBotaoExterno = function()
     local CoreGui = game:GetService("CoreGui")
     local UserInputService = game:GetService("UserInputService")
 
-    -- Espera até encontrar o GUI do hub
     local HubGUI
     repeat
         task.wait(0.2)
@@ -289,11 +375,8 @@ geral.loadBotaoExterno = function()
         end
     until HubGUI
 
-    if not HubGUI then
-        return  -- evita erro se não encontrar
-    end
+    if not HubGUI then return end
 
-    -- Cria o botão externo
     local ToggleGui = Instance.new("ScreenGui")
     ToggleGui.Name = "HubToggleButton"
     ToggleGui.ResetOnSpawn = false
@@ -309,37 +392,6 @@ geral.loadBotaoExterno = function()
     Button.BorderSizePixel = 0
     Button.Parent = ToggleGui
 
-    -- Draggable
-    local dragging = false
-    local dragInput, dragStart, startPos
-
-    Button.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = Button.Position
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
-            end)
-        end
-    end)
-
-    Button.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-            dragInput = input
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            Button.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
-
-    -- Minimizar / restaurar
     local minimized = false
     Button.MouseButton1Click:Connect(function()
         minimized = not minimized
